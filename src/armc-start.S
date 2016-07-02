@@ -113,7 +113,8 @@ _start:
     ldr pc, _data_abort_vector_h
     ldr pc, _unused_handler_h
     ldr pc, _interrupt_vector_h
-    ldr pc, _fast_interrupt_vector_h
+   // ldr pc, _fast_interrupt_vector_h
+#include "FIQ_Handler.s"
 
 _reset_h:                           .word   _copy_to_high_memory - RELOCATE_TO + RELOCATE_FROM
 _undefined_instruction_vector_h:    .word   _undefined_instruction_handler_
@@ -214,10 +215,18 @@ _reset_continue:
 
     mov     r0, #RELOCATE_TO
     mov     r1, #0x00000000
-    ldmia   r0!,{r2, r3, r4, r5, r6, r7, r8, r9}
-    stmia   r1!,{r2, r3, r4, r5, r6, r7, r8, r9}
-    ldmia   r0!,{r2, r3, r4, r5, r6, r7, r8, r9}
-    stmia   r1!,{r2, r3, r4, r5, r6, r7, r8, r9}
+    mov     r2, #_copy_to_high_memory-_start
+_copy_loop2:
+    // copy 16 bytes
+    ldmia   r0!,{r3, r4, r5, r6}
+    stmia   r1!,{r3, r4, r5, r6}
+    subs    r2, r2, #16
+    bge     _copy_loop2
+
+    //ldmia   r0!,{r2, r3, r4, r5, r6, r7, r8, r9}
+   // stmia   r1!,{r2, r3, r4, r5, r6, r7, r8, r9}
+   // ldmia   r0!,{r2, r3, r4, r5, r6, r7, r8, r9}
+   // stmia   r1!,{r2, r3, r4, r5, r6, r7, r8, r9}
 
     // Initialise Stack Pointers ---------------------------------------------
 

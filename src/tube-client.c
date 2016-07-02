@@ -64,15 +64,17 @@ volatile int copro;
 static func_ptr emulator;
 
 void init_emulator() {
+  extern volatile uint32_t tube_signal_type;
    _disable_interrupts();
-
+ 
    // Default to the normal FIQ handler
-   *((uint32_t *) 0x3C) = (uint32_t) arm_fiq_handler_flag0;
+   tube_signal_type = (uint32_t)0;
 #ifndef USE_MULTICORE   
    // When the 65tube co pro on a single core system, switch to the alternative FIQ handler
    // that flag events from the ISR using the ip register
    if (copro == COPRO_65TUBE_0 || copro == COPRO_65TUBE_1) {
-      *((uint32_t *) 0x3C) = (uint32_t) arm_fiq_handler_flag1;
+     // *((uint32_t *) 0x3C) = (uint32_t) arm_fiq_handler_flag1;
+	(uint32_t) tube_signal_type = (uint32_t)1;
    }
 #endif
 
