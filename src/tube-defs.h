@@ -76,6 +76,15 @@
 #define GPLEV0  (PERIPHERAL_BASE + 0x200034)
 #define GPEDS0  (PERIPHERAL_BASE + 0x200040)
 
+#define GPFBASE (GPFSEL0)
+#define GPFSEL0_offset (GPFSEL0 - GPFBASE )  // controls GPIOs 0..9
+#define GPFSEL1_offset (GPFSEL1 - GPFBASE )  // controls GPIOs 10..19
+#define GPFSEL2_offset (GPFSEL2 - GPFBASE )  // controls GPIOs 20..29
+#define GPSET0_offset  (GPSET0 - GPFBASE)
+#define GPCLR0_offset  (GPCLR0 - GPFBASE)
+#define GPLEV0_offset  (GPLEV0 - GPFBASE)
+#define GPEDS0_offset  (GPEDS0 - GPFBASE)     
+
 #endif // __ASSEMBLER__
 
 //    A2 – Green  - Pin 5  – GPIO1  (GPIO3 on later models)

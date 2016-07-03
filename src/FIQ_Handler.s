@@ -10,14 +10,7 @@
 // #define DEBUG_LATE
 // #define ON_READS_SPIN_FOR_PHI2_HIGH
 
-#define GPFBASE (GPFSEL0)
-#define GPFSEL0_offset (GPFSEL0 - GPFBASE )  // controls GPIOs 0..9
-#define GPFSEL1_offset (GPFSEL1 - GPFBASE )  // controls GPIOs 10..19
-#define GPFSEL2_offset (GPFSEL2 - GPFBASE )  // controls GPIOs 20..29
-#define GPSET0_offset  (GPSET0 - GPFBASE)
-#define GPCLR0_offset  (GPCLR0 - GPFBASE)
-#define GPLEV0_offset  (GPLEV0 - GPFBASE)
-#define GPEDS0_offset  (GPEDS0 - GPFBASE)     
+
 
 .global tube_regs
 .global tube_mailbox
@@ -35,7 +28,7 @@
 #ifdef HAS_40PINS
         mov     r12, #TEST_MASK
         str     r12, [r13,#GPSET0_offset]
-#endif
+#endif	
 .endm
 
 .macro SET_TEST_PIN_LOW
@@ -51,12 +44,12 @@ isr_code_start:
         //r8-r11 are shadowed in FIQ mode, so no need to push
 	// 	R13 ( sp ) is defiend to point to GPFBASE
 	//LDR	r13,=GPFBASE
-	SET_TEST_PIN_HIGH
+	//SET_TEST_PIN_HIGH
 	
-        mov     r9, #-1
-        str     r9, [r13,#GPEDS0_offset]        // clear all Pin events
+     //   mov     r9, #-1
+     //   str     r9, [r13,#GPEDS0_offset]        // clear all Pin events
 
-        ldr     r9, [r13,#GPLEV0_offset]        // *** very expensive but necessary ***
+     //   ldr     r9, [r13,#GPLEV0_offset]        // *** very expensive but necessary ***
 
 	adr     r8, gpfsel_data_driving		// free cycle get ready incase of a read cycle
 	adr     r11, tube_regs			// free cycle	

@@ -113,8 +113,20 @@ _start:
     ldr pc, _data_abort_vector_h
     ldr pc, _unused_handler_h
     ldr pc, _interrupt_vector_h
-   // ldr pc, _fast_interrupt_vector_h
-#include "FIQ_Handler.s"
+//First few instructions of the FIQ handler so we loose the Jump in the pipeline stalls 
+//	ldr r8, _fast_interrupt_vector_h
+
+#ifdef HAS_40PINS
+        mov     r12, #TEST_MASK
+        str     r12, [r13,#GPSET0_offset]
+#endif   
+	mov     r9, #-1
+    	str     r9, [r13,#GPEDS0_offset]        // clear all Pin events
+
+   	ldr     r9, [r13,#GPLEV0_offset]        // *** very expensive but necessary ***
+//	mov	pc,r8   	
+	ldr pc, _fast_interrupt_vector_h
+
 
 _reset_h:                           .word   _copy_to_high_memory - RELOCATE_TO + RELOCATE_FROM
 _undefined_instruction_vector_h:    .word   _undefined_instruction_handler_
@@ -124,6 +136,8 @@ _data_abort_vector_h:               .word   _data_abort_handler_
 _unused_handler_h:                  .word   _reset_
 _interrupt_vector_h:                .word   arm_irq_handler
 _fast_interrupt_vector_h:           .word   arm_fiq_handler
+
+_end_of_relocation:
 
 _c0_irq_stack:                      .word   C0_IRQ_STACK
 _c0_fiq_stack:                      .word   C0_FIQ_STACK
@@ -143,6 +157,8 @@ _c1_abort_stack:                    .word   C1_ABORT_STACK
 
 _patch_data:                        .word _reset_
 _patch_address:                     .word _reset_h
+
+#include "FIQ_Handler.s"
 
 _copy_to_high_memory:
     // We need to copy ourself to high memory
@@ -215,7 +231,7 @@ _reset_continue:
 
     mov     r0, #RELOCATE_TO
     mov     r1, #0x00000000
-    mov     r2, #_copy_to_high_memory-_start
+    mov     r2, #_end_of_relocation-_start
 _copy_loop2:
     // copy 16 bytes
     ldmia   r0!,{r3, r4, r5, r6}
