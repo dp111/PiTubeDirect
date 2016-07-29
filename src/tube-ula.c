@@ -17,6 +17,7 @@
 #include "rpi-interrupts.h"
 #include "info.h"
 #include "performance.h"
+#include "tubevc.h"
 
 extern volatile uint8_t tube_regs[8];
 
@@ -486,7 +487,7 @@ void tube_init_hardware()
 #endif
 
   // Configure GPIO to detect a falling edge of NTUBE and NRST
-  RPI_GpioBase->GPAFEN0 |= NTUBE_MASK | NRST_MASK;
+//  RPI_GpioBase->GPAFEN0 |= NTUBE_MASK | NRST_MASK;
 
   // Configure GPIO to detect a rising edge of NRST
   // Current code does not reqire this, as emulators poll for NRST to be released
@@ -501,7 +502,7 @@ void tube_init_hardware()
 
   // This line enables FIQ interrupts
   // Enable gpio_int[0] which is IRQ 49 as FIQ
-  RPI_GetIrqController()->FIQ_control = 0x80 + 49;
+//  RPI_GetIrqController()->FIQ_control = 0x80 + 49;
 
   // Initialise the UART to 57600 baud
   RPI_AuxMiniUartInit( 115200, 8 );
@@ -623,4 +624,19 @@ void disable_tube() {
    for (i = 0; i < 8; i++) {
       tube_regs[i] = 0xfe;
    }
+}
+
+void start_vc_ula()
+{  int func,r0,r1, r2,r3,r4,r5;
+   func = (int) &tube_bin[0];
+   r0 = (int) &tube_regs; // pointer to tube regsiters
+   r1 = (int) &gpfsel_data_idle; // gpfsel_data_idle
+   r2 = (int) ((&tube_mailbox)+ 0xC0000000);  // tube mailbox to be replaced later with VC->ARM mailbox
+   r3 = 0;
+   r4 = 0; 		// address pinmap point to be done
+   r5 = (int) (1<<TEST_PIN);	// test pin 	
+   RPI_PropertyInit();
+   RPI_PropertyAddTag(TAG_EXECUTE_CODE,func,r0,r1,r2,r3,r4,r5);
+   RPI_PropertyProcess();
+
 }

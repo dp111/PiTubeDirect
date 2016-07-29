@@ -180,6 +180,7 @@ void kernel_main(unsigned int r0, unsigned int r1, unsigned int atags)
 
 #ifdef USE_MULTICORE
   start_core(3, _init_core);
+  start_vc_ula();	
   while (1);
 #else
   start_core(3, _spin_core);

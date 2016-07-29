@@ -43,6 +43,20 @@ void RPI_PropertyAddTag( rpi_mailbox_tag_t tag, ... )
 
     switch( tag )
     {
+	case TAG_EXECUTE_CODE:
+	    pt[pt_index++] = 28;
+            pt[pt_index++] = 28; // size
+            pt[pt_index++] = va_arg( vl, int ); // Function pointer
+            pt[pt_index++] = va_arg( vl, int ); // R0
+            pt[pt_index++] = va_arg( vl, int ); // R1
+            pt[pt_index++] = va_arg( vl, int ); // R2
+            pt[pt_index++] = va_arg( vl, int ); // R3
+            pt[pt_index++] = va_arg( vl, int ); // R4
+            pt[pt_index++] = va_arg( vl, int ); // R5
+	    //pt[pt_index++] = 0; /* Request */
+            //pt_index += 1;
+ 	    break;	
+
         case TAG_GET_FIRMWARE_VERSION:
         case TAG_GET_BOARD_MODEL:
         case TAG_GET_BOARD_REVISION:
