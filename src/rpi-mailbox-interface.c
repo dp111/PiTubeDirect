@@ -4,18 +4,19 @@
 
 #include "rpi-mailbox.h"
 #include "rpi-mailbox-interface.h"
+#include "cache.h"
 
 /* Make sure the property tag buffer is aligned to a 16-byte boundary because
    we only have 28-bits available in the property interface protocol to pass
    the address of the buffer to the VC. */
-static int pt[PROP_BUFFER_SIZE] __attribute__((aligned(16)));
-static int pt_index = 0;
+static int *pt = ( int *) UNCACHED_MEM_BASE ;// [PROP_BUFFER_SIZE] __attribute__((aligned(16)));
+static int pt_index ;
 
 //#define PRINT_PROP_DEBUG 1
 
 void RPI_PropertyInit( void )
 {
-    memset(pt, 0, PROP_BUFFER_SIZE);
+    //memset(pt, 0, sizeof(pt));
 
     /* Fill in the size on-the-fly */
     pt[PT_OSIZE] = 12;
@@ -79,6 +80,18 @@ void RPI_PropertyAddTag( rpi_mailbox_tag_t tag, ... )
             pt[pt_index++] = va_arg( vl, int ); /* ClockID */
             pt_index += 1;
             break;
+
+        case TAG_EXECUTE_CODE:
+            pt[pt_index++] = 28;
+            pt[pt_index++] = 0; /* Request */
+            pt[pt_index++] = va_arg( vl, int ); // Function pointer
+            pt[pt_index++] = va_arg( vl, int ); // R0
+            pt[pt_index++] = va_arg( vl, int ); // R1
+            pt[pt_index++] = va_arg( vl, int ); // R2
+            pt[pt_index++] = va_arg( vl, int ); // R3
+            pt[pt_index++] = va_arg( vl, int ); // R4
+            pt[pt_index++] = va_arg( vl, int ); // R5
+            break;   
 
         case TAG_ALLOCATE_BUFFER:
             pt[pt_index++] = 8;
@@ -174,7 +187,7 @@ int RPI_PropertyProcess( void )
     
 #if( PRINT_PROP_DEBUG == 1 )
     int i;
-    printf( "%s Length: %d\r\n", __func__, pt[PT_OSIZE] );
+    LOG_INFO( "%s Length: %d\r\n", __func__, pt[PT_OSIZE] );
 #endif
     /* Fill in the size of the buffer */
     pt[PT_OSIZE] = ( pt_index + 1 ) << 2;
@@ -182,7 +195,7 @@ int RPI_PropertyProcess( void )
 
 #if( PRINT_PROP_DEBUG == 1 )
     for( i = 0; i < (pt[PT_OSIZE] >> 2); i++ )
-        printf( "Request: %3d %8.8X\r\n", i, pt[i] );
+        LOG_INFO( "Request: %3d %8.8X\r\n", i, pt[i] );
 #endif
     RPI_Mailbox0Write( MB0_TAGS_ARM_TO_VC, (unsigned int)pt );
 
@@ -190,11 +203,27 @@ int RPI_PropertyProcess( void )
 
 #if( PRINT_PROP_DEBUG == 1 )
     for( i = 0; i < (pt[PT_OSIZE] >> 2); i++ )
-        printf( "Response: %3d %8.8X\r\n", i, pt[i] );
+        LOG_INFO( "Response: %3d %8.8X\r\n", i, pt[i] );
 #endif
     return result;
 }
 
+void RPI_PropertyProcessNoCheck( void )
+{
+#if( PRINT_PROP_DEBUG == 1 )
+    int i;
+    LOG_INFO( "%s Length: %d\r\n", __func__, pt[PT_OSIZE] );
+#endif
+    /* Fill in the size of the buffer */
+    pt[PT_OSIZE] = ( pt_index + 1 ) << 2;
+    pt[PT_OREQUEST_OR_RESPONSE] = 0;
+
+#if( PRINT_PROP_DEBUG == 1 )
+    for( i = 0; i < (pt[PT_OSIZE] >> 2); i++ )
+        LOG_INFO( "Request: %3d %8.8X\r\n", i, pt[i] );
+#endif
+    RPI_Mailbox0Write( MB0_TAGS_ARM_TO_VC, (unsigned int)pt );
+}
 
 rpi_mailbox_property_t* RPI_PropertyGet( rpi_mailbox_tag_t tag)
 {
@@ -208,7 +237,7 @@ rpi_mailbox_property_t* RPI_PropertyGet( rpi_mailbox_tag_t tag)
 
     while( index < ( pt[PT_OSIZE] >> 2 ) )
     {
-        /* printf( "Test Tag: [%d] %8.8X\r\n", index, pt[index] ); */
+        /* LOG_DEBUG( "Test Tag: [%d] %8.8X\r\n", index, pt[index] ); */
         if( pt[index] == tag )
         {
            tag_buffer = &pt[index];

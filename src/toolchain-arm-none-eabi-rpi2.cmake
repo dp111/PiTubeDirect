@@ -56,6 +56,7 @@ set( CMAKE_OBJCOPY      ${TC_PATH}${CROSS_COMPILE}objcopy
     CACHE FILEPATH "The toolchain objcopy command " FORCE )
 
 # Set the CMAKE C flags (which should also be used by the assembler!
+
 set( CMAKE_C_FLAGS "${CMAKE_C_FLAGS} -mfpu=neon-vfpv4" )
 set( CMAKE_C_FLAGS "${CMAKE_C_FLAGS} -mfloat-abi=hard" )
 set( CMAKE_C_FLAGS "${CMAKE_C_FLAGS} -march=armv7-a" )
@@ -66,3 +67,5 @@ set( CMAKE_ASM_FLAGS "${CMAKE_C_FLAGS}" CACHE STRING "" )
 
 # Add the raspberry-pi 2 definition so conditional compilation works
 add_definitions( -DRPI2=1 )
+
+set( KERNEL_NAME "./kernelrpi2.img" )

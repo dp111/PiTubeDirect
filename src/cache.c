@@ -1,4 +1,5 @@
 #include <stdio.h>
+#include <string.h>
 #include "startup.h"
 #include "rpi-base.h"
 #include "cache.h"
@@ -9,7 +10,16 @@
 // At that point, the stack appears to vanish and the data read back is 0x55555555
 // Reason turned out to be failure to correctly invalidate the entire data cache
 
-volatile __attribute__ ((aligned (0x4000))) unsigned PageTable[4096];
+const static unsigned l1_cached_threshold = L2_CACHED_MEM_BASE >> 20;
+const static unsigned l2_cached_threshold = UNCACHED_MEM_BASE >> 20;
+const static unsigned uncached_threshold = PERIPHERAL_BASE >> 20;
+   
+volatile __attribute__ ((aligned (0x4000))) unsigned int PageTable[4096];
+volatile __attribute__ ((aligned (0x4000))) unsigned int PageTable2[NUM_4K_PAGES];
+
+const static int aa = 1;
+const static int bb = 1;
+const static int shareable = 1;
 
 #if defined(RPI2) || defined (RPI3)
 
@@ -63,17 +73,70 @@ void InvalidateDataCache (void)
       }
    }
 }
+
+void CleanDataCache (void)
+{
+   unsigned nSet;
+   unsigned nWay;
+   uint32_t nSetWayLevel;
+   // clean L1 data cache
+   for (nSet = 0; nSet < L1_DATA_CACHE_SETS; nSet++) {
+      for (nWay = 0; nWay < L1_DATA_CACHE_WAYS; nWay++) {
+         nSetWayLevel = nWay << L1_SETWAY_WAY_SHIFT
+                      | nSet << L1_SETWAY_SET_SHIFT
+                      | 0 << SETWAY_LEVEL_SHIFT;
+         asm volatile ("mcr p15, 0, %0, c7, c10,  2" : : "r" (nSetWayLevel) : "memory");
+      }
+   }
+
+   // clean L2 unified cache
+   for (nSet = 0; nSet < L2_CACHE_SETS; nSet++) {
+      for (nWay = 0; nWay < L2_CACHE_WAYS; nWay++) {
+         nSetWayLevel = nWay << L2_SETWAY_WAY_SHIFT
+                      | nSet << L2_SETWAY_SET_SHIFT
+                      | 1 << SETWAY_LEVEL_SHIFT;
+         asm volatile ("mcr p15, 0, %0, c7, c10,  2" : : "r" (nSetWayLevel) : "memory");
+      }
+   }
+}
 #endif
+
+// TLB 4KB Section Descriptor format
+// 31..12 Section Base Address
+// 11..9        - unused, set to zero
+// 8..6   TEX   - type extension- TEX, C, B used together, see below
+// 5..4   AP    - access ctrl   - set to 11 for full access from user and super modes
+// 3      C     - cacheable     - TEX, C, B used together, see below
+// 2      B     - bufferable    - TEX, C, B used together, see below
+// 1      1
+// 0      1                     
+
+void map_4k_page(int logical, int physical) {
+  // Invalidate the data TLB before changing mapping
+  _invalidate_dtlb_mva((void *)(logical << 12));
+  // Setup the 4K page table entry
+  // Second level descriptors use extended small page format so inner/outer cacheing can be controlled 
+  // Pi 0/1:
+  //   XP (bit 23) in SCTRL is 0 so descriptors use ARMv4/5 backwards compatible format
+  // Pi 2/3:
+  //   XP (bit 23) in SCTRL no longer exists, and we see to be using ARMv6 table formats
+  //   this means bit 0 of the page table is actually XN and must be clear to allow native ARM code to execute
+  //   (this was the cause of issue #27)
+#if defined(RPI2) || defined (RPI3)
+  PageTable2[logical] = (physical<<12) | 0x132 | (bb << 6) | (aa << 2);
+#else
+  PageTable2[logical] = (physical<<12) | 0x133 | (bb << 6) | (aa << 2);
+#endif
+}
 
 void enable_MMU_and_IDCaches(void)
 {
 
-  printf("enable_MMU_and_IDCaches\r\n");
-  printf("cpsr    = %08x\r\n", _get_cpsr());
+  LOG_DEBUG("enable_MMU_and_IDCaches\r\n");
+  //LOG_DEBUG("cpsr    = %08x\r\n", _get_cpsr());
 
+  unsigned i;
   unsigned base;
-  unsigned cached_threshold = UNCACHED_MEM_BASE >> 20;
-  unsigned uncached_threshold = PERIPHERAL_BASE >> 20;
   
   // TLB 1MB Sector Descriptor format
   // 31..20 Section Base Address
@@ -111,11 +174,7 @@ void enable_MMU_and_IDCaches(void)
   // 11 = WBNWA (write-back, no write allocate)
   /// TEX = 100; C=0; B=1 (outer non cacheable, inner write-back, write allocate)
 
-  int aa = 1;
-  int bb = 1;
-  int shareable = 1;
-
-  for (base = 0; base < cached_threshold; base++)
+  for (base = 0; base < l1_cached_threshold; base++)
   {
     // Value from my original RPI code = 11C0E (outer and inner write back, write allocate, shareable)
     // bits 11..10 are the AP bits, and setting them to 11 enables user mode access as well
@@ -123,6 +182,10 @@ void enable_MMU_and_IDCaches(void)
     // Values from RPI2 = 10C0A (outer and inner write through, no write allocate, shareable)
     // Values from RPI2 = 15C0A (outer write back, write allocate, inner write through, no write allocate, shareable)
     PageTable[base] = base << 20 | 0x04C02 | (shareable << 16) | (bb << 12) | (aa << 2);
+  }
+  for (; base < l2_cached_threshold; base++)
+  {
+     PageTable[base] = base << 20 | 0x04C02 | (shareable << 16) | (bb << 12);
   }
   for (; base < uncached_threshold; base++)
   {
@@ -134,10 +197,34 @@ void enable_MMU_and_IDCaches(void)
     PageTable[base] = base << 20 | 0x10C16;
   }
 
+  // suppress a warning as we really do want to copy from src address 0!
+#pragma GCC diagnostic push
+#pragma GCC diagnostic ignored "-Wnonnull"
+  // copy vectors from virtual address zero to a higher unused location
+  // cppcheck-suppress nullPointer
+  memcpy((void *)HIGH_VECTORS_BASE, (void *)0, 0x1000);
+#pragma GCC diagnostic pop
+
+  // replace the first N 1MB entries with second level page tables, giving N x 256 4K pages
+  for (i = 0; i < NUM_4K_PAGES >> 8; i++)
+  {
+    PageTable[i] = (unsigned int) (&PageTable2[i << 8]);
+    PageTable[i] +=1;
+  }
+
+  // populate the second level page tables  
+  for (base = 0; base < NUM_4K_PAGES; base++)
+  {
+    map_4k_page(base, base);
+  }
+ 
+  // relocate the vector pointer to the moved page 
+  asm volatile("mcr p15, 0, %[addr], c12, c0, 0" : : [addr] "r" (HIGH_VECTORS_BASE)); 
+  
 #if defined(RPI3)
-  unsigned cpuextctrl0, cpuextctrl1;
-  asm volatile ("mrrc p15, 1, %0, %1, c15" : "=r" (cpuextctrl0), "=r" (cpuextctrl1));
-  printf("extctrl = %08x %08x\r\n", cpuextctrl1, cpuextctrl0);
+  //unsigned cpuextctrl0, cpuextctrl1;
+  //asm volatile ("mrrc p15, 1, %0, %1, c15" : "=r" (cpuextctrl0), "=r" (cpuextctrl1));
+  //LOG_DEBUG("extctrl = %08x %08x\r\n", cpuextctrl1, cpuextctrl0);
 #else
   // RPI:  bit 6 of auxctrl is restrict cache size to 16K (no page coloring)
   // RPI2: bit 6 of auxctrl is set SMP bit, otherwise all caching disabled
@@ -145,8 +232,8 @@ void enable_MMU_and_IDCaches(void)
   asm volatile ("mrc p15, 0, %0, c1, c0,  1" : "=r" (auxctrl));
   auxctrl |= 1 << 6;
   asm volatile ("mcr p15, 0, %0, c1, c0,  1" :: "r" (auxctrl));
-  asm volatile ("mrc p15, 0, %0, c1, c0,  1" : "=r" (auxctrl));
-  printf("auxctrl = %08x\r\n", auxctrl);
+  //asm volatile ("mrc p15, 0, %0, c1, c0,  1" : "=r" (auxctrl));
+  //LOG_DEBUG("auxctrl = %08x\r\n", auxctrl);
 #endif
 
   // set domain 0 to client
@@ -155,9 +242,9 @@ void enable_MMU_and_IDCaches(void)
   // always use TTBR0
   asm volatile ("mcr p15, 0, %0, c2, c0, 2" :: "r" (0));
 
-  unsigned ttbcr;
-  asm volatile ("mrc p15, 0, %0, c2, c0, 2" : "=r" (ttbcr));
-  printf("ttbcr   = %08x\r\n", ttbcr);
+  //unsigned ttbcr;
+  //asm volatile ("mrc p15, 0, %0, c2, c0, 2" : "=r" (ttbcr));
+  //LOG_DEBUG("ttbcr   = %08x\r\n", ttbcr);
 
 #if defined(RPI2) || defined(RPI3)
   // set TTBR0 - page table walk memory cacheability/shareable
@@ -171,9 +258,9 @@ void enable_MMU_and_IDCaches(void)
   // set TTBR0 (page table walk inner cacheable, outer non-cacheable, shareable memory)
   asm volatile ("mcr p15, 0, %0, c2, c0, 0" :: "r" (0x03 | (unsigned) &PageTable));
 #endif
-  unsigned ttbr0;
-  asm volatile ("mrc p15, 0, %0, c2, c0, 0" : "=r" (ttbr0));
-  printf("ttbr0   = %08x\r\n", ttbr0);
+ // unsigned ttbr0;
+ // asm volatile ("mrc p15, 0, %0, c2, c0, 0" : "=r" (ttbr0));
+  //LOG_DEBUG("ttbr0   = %08x\r\n", ttbr0);
 
 
   // Invalidate entire data cache
@@ -191,6 +278,7 @@ void enable_MMU_and_IDCaches(void)
   //   branch prediction and extended page table on
   unsigned sctrl;
   asm volatile ("mrc p15,0,%0,c1,c0,0" : "=r" (sctrl));
+  // Bit 13 enable vector relocation
   // Bit 12 enables the L1 instruction cache
   // Bit 11 enables branch pre-fetching
   // Bit  2 enables the L1 data cache
@@ -200,12 +288,12 @@ void enable_MMU_and_IDCaches(void)
 
   sctrl |= 0x00001805;
   asm volatile ("mcr p15,0,%0,c1,c0,0" :: "r" (sctrl) : "memory");
-  asm volatile ("mrc p15,0,%0,c1,c0,0" : "=r" (sctrl));
-  printf("sctrl   = %08x\r\n", sctrl);
+  //asm volatile ("mrc p15,0,%0,c1,c0,0" : "=r" (sctrl));
+  //LOG_DEBUG("sctrl   = %08x\r\n", sctrl);
 
   // For information, show the cache type register
   // From this you can tell what type of cache is implemented
-  unsigned ctype;
-  asm volatile ("mrc p15,0,%0,c0,c0,1" : "=r" (ctype));
-  printf("ctype   = %08x\r\n", ctype);
+  //unsigned ctype;
+  //asm volatile ("mrc p15,0,%0,c0,c0,1" : "=r" (ctype));
+  //LOG_DEBUG("ctype   = %08x\r\n", ctype);
 }
